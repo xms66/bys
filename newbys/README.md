@@ -14,6 +14,7 @@
 - 近五日 K 线形态、量能结构、消息驱动强度、题材强度、人气排名作为似然证据。
 - 第一版使用主观参数表，不依赖个股长期历史。
 - 输出每个证据的 `P(evidence|profit)` 和 `P(evidence|loss)`，方便人工调参。
+- LLM 会读取同花顺热榜前 5 和结构化贝叶斯证据，并在“贝叶斯短线分析”系统提示词约束下给出 T+1 决策。
 
 启动：
 
@@ -21,6 +22,14 @@
 cd E:\workspace\diy\贝叶斯短线\newbys
 $env:TICKERLAB_API_KEY="你的TickerLab API Key"
 python run.py
+```
+
+LLM 配置放在本地 `.env`，不要提交：
+
+```text
+freechat_url=你的OpenAI兼容接口地址
+freechat_key=你的API Key
+freechat_model=你的模型名
 ```
 
 打开：
@@ -32,7 +41,7 @@ http://127.0.0.1:5010
 接口：
 
 - `GET /api/status`
-- `GET /api/analysis?top_n=20`
+- `GET /api/analysis`
 - `POST /api/infer`
 
 数据源优先级：

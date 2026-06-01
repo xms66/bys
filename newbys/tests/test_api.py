@@ -4,6 +4,7 @@ from newbys.models import StockSnapshot
 
 
 def test_analysis_api_returns_subjective_bayes_result():
+    advisor = FakeAdvisor()
     app = create_app(
         data_source=StaticDataSource(
             [
@@ -19,7 +20,8 @@ def test_analysis_api_returns_subjective_bayes_result():
                     concept_tags=["AI", "data"],
                 )
             ]
-        )
+        ),
+        llm_advisor=advisor,
     )
     client = app.test_client()
 
@@ -69,3 +71,40 @@ def test_manual_analysis_accepts_explicit_evidence():
     payload = response.get_json()
     assert payload["posterior_profit"] > 0.5
     assert payload["prior_profit"] > 0.55
+
+
+class FakeAdvisor:
+    def __init__(self):
+        self.calls = []
+
+    def analyze(self, market, items):
+        self.calls.append((market, items))
+        return {"enabled": True, "content": "LLM decision", "error": "", "model": "fake"}
+
+
+def test_analysis_defaults_to_top5_and_includes_llm_advice():
+    stocks = [
+        StockSnapshot(
+            code=f"30000{i}",
+            name=f"Stock {i}",
+            price=10.0,
+            change_pct=1.0,
+            turnover_rate=5.0,
+            volume_ratio=1.2,
+            amount=100_000_000,
+            hot_rank=i,
+            concept_tags=["AI"],
+        )
+        for i in range(1, 8)
+    ]
+    advisor = FakeAdvisor()
+    app = create_app(data_source=StaticDataSource(stocks), llm_advisor=advisor)
+    client = app.test_client()
+
+    response = client.get("/api/analysis")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert len(payload["items"]) == 5
+    assert payload["llm_advice"]["content"] == "LLM decision"
+    assert len(advisor.calls[0][1]) == 5

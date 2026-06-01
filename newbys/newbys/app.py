@@ -13,15 +13,17 @@ except ModuleNotFoundError:
 from .data_source import DataSource, create_data_source
 from .engine import SubjectiveBayesEngine
 from .features import build_evidence_from_snapshot, infer_market_context
+from .llm_advisor import LlmAdvisor
 from .models import EvidenceInput, MarketContext, StockSnapshot
 
 
-def create_app(data_source: DataSource | None = None) -> Flask:
+def create_app(data_source: DataSource | None = None, llm_advisor: LlmAdvisor | None = None) -> Flask:
     app = Flask(__name__, static_folder="../web", static_url_path="")
     if CORS:
         CORS(app)
     engine = SubjectiveBayesEngine()
     source = data_source or create_data_source()
+    advisor = llm_advisor or LlmAdvisor()
 
     @app.get("/")
     def index():
@@ -33,11 +35,12 @@ def create_app(data_source: DataSource | None = None) -> Flask:
             "status": "ok",
             "model": "subjective_bayes_v1",
             "source": source.source_name,
+            "llm_configured": advisor.is_configured() if hasattr(advisor, "is_configured") else True,
         })
 
     @app.get("/api/analysis")
     def analysis():
-        top_n = int(request.args.get("top_n", 20))
+        top_n = min(int(request.args.get("top_n", 5)), 5)
         stocks = source.get_stocks(top_n)
         market = infer_market_context(stocks)
         items = []
@@ -46,11 +49,14 @@ def create_app(data_source: DataSource | None = None) -> Flask:
             result = engine.infer(evidence_input).to_dict()
             result["posterior_profit"] = result["posterior_profit"]
             items.append(result)
+        market_dict = market.to_dict()
+        llm_advice = advisor.analyze(market_dict, items)
         return jsonify({
             "model": "subjective_bayes_v1",
             "source": source.source_name,
-            "market": market.to_dict(),
+            "market": market_dict,
             "items": items,
+            "llm_advice": llm_advice,
         })
 
     @app.post("/api/infer")
