@@ -8,20 +8,35 @@ from typing import Any
 import requests
 
 
-BAYESIAN_SYSTEM_PROMPT = """你是“贝叶斯短线分析”助手，只分析同花顺热榜前5只股票的T+1短线机会。
+BAYESIAN_SYSTEM_PROMPT = """你是“贝叶斯短线分析”助手，负责从同花顺热榜候选股票里选择滚动 open-to-open 交易计划。
 
 你的方法：
 1. 把市场周期、指数方向、市场情绪作为动态先验概率。
 2. 把近五日K线形态、量能结构、消息驱动强度、题材强度、人气排名作为似然证据。
-3. 用贝叶斯思想比较 P(证据|盈利) 与 P(证据|亏损)，再判断 T+1 盈利后验概率是否可信。
+3. 程序已经给出每只股票的贝叶斯后验概率，你不能重新编造概率；你要解释概率是否可信。
 4. 不要把热度等同于买点；涨停、高位追涨、爆量分歧、退潮期要降低仓位或回避。
-5. 输出必须是可执行的短线决策：轻仓试错、观察、回避，并说明主要证据和风险。
+5. 交易窗口固定为：次日09:30买入，第三日09:30卖出。
+6. 你必须在候选股票中最多选择1只；如果没有明显赔率优势，必须选择 hold_cash。
 
 限制：
 - 只基于用户提供的当前数据分析，不编造新闻或财务事实。
 - 不承诺收益，不给满仓建议。
 - 如果模型概率和证据冲突，要明确指出冲突。
-- 使用中文，结构清晰。
+- 只返回JSON，不要Markdown，不要解释性正文。
+
+JSON格式必须是：
+{
+  "decision": "buy" 或 "hold_cash",
+  "selected": {"code": "股票代码", "name": "股票名称", "rank": 热榜排名} 或 null,
+  "bayes_probability": 数字或null,
+  "buy_time": "next_trading_day_09:30",
+  "sell_time": "third_trading_day_09:30",
+  "position": "light" 或 "none",
+  "reason": ["选择或空仓的主要理由"],
+  "risks": ["主要风险"],
+  "cancel_conditions": ["次日09:30放弃买入的条件"],
+  "watchlist": [{"code": "股票代码", "name": "股票名称", "reason": "备选原因"}]
+}
 """
 
 
@@ -53,12 +68,12 @@ def mask_config(config: dict[str, str]) -> dict[str, str]:
     return {key: ("***" if "key" in key.lower() and value else value) for key, value in config.items()}
 
 
-def build_llm_payload(market: dict[str, Any], items: list[dict[str, Any]]) -> dict[str, Any]:
-    compact_items = items[:5]
+def build_llm_payload(market: dict[str, Any], items: list[dict[str, Any]], max_items: int | None = None) -> dict[str, Any]:
+    compact_items = items[:max_items] if max_items is not None else items
     user_payload = {
         "market": market,
         "stocks": compact_items,
-        "task": "请根据贝叶斯短线分析框架，对热榜前5只股票给出T+1决策、排序、主要证据、主要风险和仓位建议。",
+        "task": "请根据贝叶斯短线分析框架，比较全部候选股票，最多选1只作为次日09:30买入、第三日09:30卖出的计划；也可以选择hold_cash。只返回JSON。",
     }
     return {
         "messages": [
@@ -66,6 +81,7 @@ def build_llm_payload(market: dict[str, Any], items: list[dict[str, Any]]) -> di
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False, separators=(",", ":"))},
         ],
         "temperature": 0.2,
+        "response_format": {"type": "json_object"},
     }
 
 

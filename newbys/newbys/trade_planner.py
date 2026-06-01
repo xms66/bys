@@ -72,7 +72,7 @@ def parse_llm_decision(raw_text: str) -> dict[str, Any]:
                 return json.loads(text[start : end + 1])
             except json.JSONDecodeError:
                 pass
-    return {"decision": "hold_cash", "reason": ["LLM output was not valid JSON"], "raw": raw_text}
+    return {"decision": "parse_error", "reason": ["LLM output was not valid JSON"], "raw": raw_text}
 
 
 class TradePlanStore:

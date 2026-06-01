@@ -80,7 +80,40 @@ def test_build_llm_payload_uses_bayesian_system_prompt_and_top5_inputs():
     payload = build_llm_payload(market.to_dict(), items)
 
     assert "贝叶斯短线分析" in payload["messages"][0]["content"]
-    assert "T+1" in payload["messages"][0]["content"]
+    assert "open-to-open" in payload["messages"][0]["content"]
+    assert "次日09:30买入" in payload["messages"][0]["content"]
+    assert "300005" in payload["messages"][1]["content"]
+    assert "300006" in payload["messages"][1]["content"]
+    assert "只返回JSON" in payload["messages"][0]["content"]
+    assert "hold_cash" in payload["messages"][0]["content"]
+
+
+def test_build_llm_payload_can_limit_display_count_for_front_page():
+    market = MarketContext(cycle_phase="markup", index_trend="up", sentiment_score=0.8)
+    items = [
+        {
+            "stock": StockSnapshot(
+                code=f"30000{i}",
+                name=f"Stock {i}",
+                price=10,
+                change_pct=1,
+                turnover_rate=5,
+                volume_ratio=1.2,
+                amount=100000000,
+                hot_rank=i,
+                concept_tags=[],
+            ).to_dict(),
+            "posterior_profit": 0.6,
+            "prior_profit": 0.55,
+            "signal": "positive",
+            "action": "watch_for_entry",
+            "evidence": [],
+        }
+        for i in range(1, 7)
+    ]
+
+    payload = build_llm_payload(market.to_dict(), items, max_items=5)
+
     assert "300005" in payload["messages"][1]["content"]
     assert "300006" not in payload["messages"][1]["content"]
 

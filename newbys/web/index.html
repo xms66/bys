@@ -102,7 +102,9 @@
     async function generatePlan() {
       const res = await fetch("/api/plans/generate", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
       const data = await res.json();
-      alert(`已生成计划：${data.plan.decision} ${data.plan.code || ""} ${data.plan.name || ""}`);
+      const analyzed = data.analysis?.items?.length || 0;
+      const suffix = data.plan.decision === "parse_error" ? "LLM未返回合法JSON，请查看LLM原文" : `${data.plan.code || ""} ${data.plan.name || ""}`;
+      alert(`已分析${analyzed}只，生成计划：${data.plan.decision} ${suffix}`);
       load();
     }
     document.getElementById("refresh").addEventListener("click", load);

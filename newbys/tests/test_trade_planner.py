@@ -5,6 +5,7 @@ from newbys.trade_planner import (
     create_trade_plan_from_llm,
     get_today_actions,
     next_trade_dates,
+    parse_llm_decision,
 )
 
 
@@ -93,3 +94,10 @@ def test_mark_execution_updates_buy_and_sell_prices(tmp_path):
     assert updated["buy_price"] == 6.78
     assert updated["sell_price"] == 7.10
     assert round(updated["profit_pct"], 4) == 0.0472
+
+
+def test_parse_llm_decision_marks_invalid_output_as_parse_error():
+    decision = parse_llm_decision("自然语言报告，不是JSON")
+
+    assert decision["decision"] == "parse_error"
+    assert "not valid JSON" in decision["reason"][0]
