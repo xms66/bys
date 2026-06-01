@@ -19,6 +19,7 @@
 
 ```powershell
 cd E:\workspace\diy\贝叶斯短线\newbys
+$env:TICKERLAB_API_KEY="你的TickerLab API Key"
 python run.py
 ```
 
@@ -34,6 +35,12 @@ http://127.0.0.1:5010
 - `GET /api/analysis?top_n=20`
 - `POST /api/infer`
 
+数据源优先级：
+
+1. `TICKERLAB_API_KEY` 存在时，使用 TickerLab 获取同花顺热榜前 50，再用腾讯行情补充价格、涨跌幅、换手率、成交额。
+2. TickerLab 不可用时，退回腾讯固定股票池。
+3. 网络不可用时，退回 mock 数据。
+
 测试：
 
 如果安装了 pytest：
@@ -47,4 +54,3 @@ python -m pytest -q
 ```powershell
 python scripts\smoke_tests.py
 ```
-

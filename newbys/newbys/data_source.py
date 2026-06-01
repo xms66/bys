@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import random
+import re
+import os
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
@@ -58,6 +61,15 @@ class MockDataSource:
         return stocks[:top_n]
 
 
+@dataclass(frozen=True)
+class HotRankEntry:
+    rank: int
+    code: str
+    name: str
+    heat_score: float = 0.0
+    concept_tags: list[str] | None = None
+
+
 class TencentQuoteDataSource:
     source_name = "tencent_quotes"
     TENCENT_URL = "http://qt.gtimg.cn/q={}"
@@ -73,14 +85,17 @@ class TencentQuoteDataSource:
         self.session.headers.update({"User-Agent": "Mozilla/5.0"})
 
     def get_stocks(self, top_n: int = 50) -> list[StockSnapshot]:
-        rows = self._query(self.codes)
+        return self.get_stocks_for_codes(self.codes)[:top_n]
+
+    def get_stocks_for_codes(self, codes: list[str]) -> list[StockSnapshot]:
+        rows = self._query(codes)
         stocks = []
         for idx, fields in enumerate(rows, 1):
             stock = self._parse(fields, idx)
             if stock:
                 stocks.append(stock)
         stocks.sort(key=lambda s: (s.hot_rank if s.hot_rank > 0 else 999, -s.turnover_rate))
-        return stocks[:top_n]
+        return stocks
 
     def _query(self, codes: list[str]) -> list[list[str]]:
         if not codes:
@@ -121,9 +136,146 @@ class TencentQuoteDataSource:
             return None
 
 
+class TickerLabHotRankDataSource:
+    source_name = "tickerlab_ths_hot_rank"
+    HOT_RANK_URL = "https://tickerlab.org/v1/ranking/hot-stock"
+
+    def __init__(
+        self,
+        api_key: str | None = None,
+        session: requests.Session | None = None,
+        quote_source: TencentQuoteDataSource | None = None,
+        timeout: int = 10,
+    ):
+        self.api_key = api_key if api_key is not None else os.environ.get("TICKERLAB_API_KEY", "")
+        self.session = session or requests.Session()
+        self.quote_source = quote_source or TencentQuoteDataSource(timeout=timeout)
+        self.timeout = timeout
+
+    def fetch_hot_rank_entries(self, top_n: int = 50) -> list[HotRankEntry]:
+        if not self.api_key:
+            raise RuntimeError("TICKERLAB_API_KEY is required for real THS hot rank")
+        response = self.session.get(
+            self.HOT_RANK_URL,
+            params={"limit": top_n},
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "X-API-Key": self.api_key,
+                "User-Agent": "Mozilla/5.0",
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        entries = []
+        used_ranks = set()
+        for idx, item in enumerate(self._extract_items(response.json()), 1):
+            code = self._clean_code(self._first_value(item, ("code", "stock_code", "symbol", "ticker")))
+            name = str(self._first_value(item, ("name", "stock_name", "short_name"), "")).strip()
+            if not code or not name:
+                continue
+            rank = self._to_int(self._first_value(item, ("rank", "ranking", "position"), idx), idx)
+            if rank in used_ranks:
+                rank = idx
+            used_ranks.add(rank)
+            heat = self._to_float(self._first_value(item, ("heat", "hot", "hot_value", "score", "heat_score"), 0.0))
+            entries.append(HotRankEntry(rank=rank, code=code, name=name, heat_score=heat, concept_tags=[]))
+        entries.sort(key=lambda entry: entry.rank)
+        return entries[:top_n]
+
+    def get_stocks(self, top_n: int = 50) -> list[StockSnapshot]:
+        entries = self.fetch_hot_rank_entries(top_n=top_n)
+        codes = [entry.code for entry in entries]
+        quotes = {stock.code: stock for stock in self.quote_source.get_stocks_for_codes(codes)}
+        snapshots = []
+        for entry in entries:
+            quote = quotes.get(entry.code)
+            if quote:
+                snapshots.append(
+                    StockSnapshot(
+                        code=quote.code,
+                        name=quote.name or entry.name,
+                        price=quote.price,
+                        change_pct=quote.change_pct,
+                        turnover_rate=quote.turnover_rate,
+                        volume_ratio=quote.volume_ratio,
+                        amount=quote.amount,
+                        hot_rank=entry.rank,
+                        concept_tags=entry.concept_tags or quote.concept_tags,
+                    )
+                )
+            else:
+                snapshots.append(
+                    StockSnapshot(
+                        code=entry.code,
+                        name=entry.name,
+                        price=0.0,
+                        change_pct=0.0,
+                        turnover_rate=0.0,
+                        volume_ratio=1.0,
+                        amount=0.0,
+                        hot_rank=entry.rank,
+                        concept_tags=entry.concept_tags or [],
+                    )
+                )
+        return snapshots[:top_n]
+
+    @staticmethod
+    def _extract_items(payload: object) -> list[dict]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if not isinstance(payload, dict):
+            return []
+        data = payload.get("data", payload)
+        if isinstance(data, list):
+            return [item for item in data if isinstance(item, dict)]
+        if isinstance(data, dict):
+            for key in ("items", "list", "stocks", "rows", "result"):
+                value = data.get(key)
+                if isinstance(value, list):
+                    return [item for item in value if isinstance(item, dict)]
+        return []
+
+    @staticmethod
+    def _first_value(item: dict, keys: tuple[str, ...], default=None):
+        for key in keys:
+            value = item.get(key)
+            if value not in (None, ""):
+                return value
+        return default
+
+    @staticmethod
+    def _clean_code(raw_code: object) -> str:
+        code = str(raw_code or "").strip().upper()
+        if "." in code:
+            left, right = code.split(".", 1)
+            code = right if left in {"SH", "SZ", "BJ"} else left
+        return re.sub(r"\D", "", code)
+
+    @staticmethod
+    def _to_int(value: object, default: int) -> int:
+        try:
+            return int(float(str(value)))
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _to_float(value: object) -> float:
+        try:
+            return float(str(value))
+        except (TypeError, ValueError):
+            return 0.0
+
+
 def create_data_source(force_mock: bool = False) -> DataSource:
     if force_mock:
         return MockDataSource()
+    if os.environ.get("TICKERLAB_API_KEY"):
+        try:
+            source = TickerLabHotRankDataSource()
+            if source.get_stocks(3):
+                return source
+        except Exception:
+            pass
     try:
         source = TencentQuoteDataSource()
         if source.get_stocks(3):
@@ -131,4 +283,3 @@ def create_data_source(force_mock: bool = False) -> DataSource:
     except Exception:
         pass
     return MockDataSource()
-
