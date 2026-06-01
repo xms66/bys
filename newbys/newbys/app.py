@@ -11,6 +11,7 @@ except ModuleNotFoundError:
     CORS = None
 
 from .data_source import DataSource, create_data_source
+from .backtest import BacktestStore
 from .engine import SubjectiveBayesEngine
 from .features import build_evidence_from_snapshot, infer_market_context
 from .llm_advisor import LlmAdvisor
@@ -35,6 +36,7 @@ def create_app(
     source = data_source or create_data_source()
     advisor = llm_advisor or LlmAdvisor()
     store = plan_store or TradePlanStore()
+    backtest_store = BacktestStore()
 
     @app.get("/")
     def index():
@@ -83,6 +85,10 @@ def create_app(
     def mark_sell(plan_id: int):
         payload = request.get_json(force=True)
         return jsonify({"plan": store.mark_sell_executed(plan_id, float(payload["price"]))})
+
+    @app.get("/api/backtest/history")
+    def backtest_history():
+        return jsonify({"rows": backtest_store.history()})
 
     @app.post("/api/infer")
     def infer_manual():

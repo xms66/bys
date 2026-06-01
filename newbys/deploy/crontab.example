@@ -1,0 +1,6 @@
+# 每天晚上 20:30 生成同花顺热榜50 LLM决策，并写入资金表
+30 20 * * 1-5 cd /app && python scripts/daily_job.py decide >> /app/data/daily_job.log 2>&1
+
+# 早上 09:30 执行滚动买卖需要开盘价。当前版本请由外部脚本传入 open-prices-json。
+# 示例：
+# 30 9 * * 1-5 cd /app && python scripts/daily_job.py execute --decision-file /app/data/decision.json --open-prices-file /app/data/open_prices.json >> /app/data/daily_job.log 2>&1

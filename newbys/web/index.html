@@ -3,112 +3,78 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>贝叶斯短线 LLM 决策</title>
+  <title>贝叶斯短线资金表</title>
   <style>
     body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: #f6f7f9; color: #1f2933; }
     header { padding: 18px 28px; background: #fff; border-bottom: 1px solid #dde3ea; display: flex; justify-content: space-between; align-items: center; }
     h1 { font-size: 20px; margin: 0; }
     main { padding: 22px 28px; }
-    button { border: 1px solid #2f6fed; background: #2f6fed; color: #fff; border-radius: 6px; padding: 9px 14px; cursor: pointer; }
-    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
-    .panel, .card { background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 14px; }
-    .market { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; margin-bottom: 16px; }
-    .advisor { margin-bottom: 16px; white-space: pre-wrap; line-height: 1.55; }
-    .actions { margin-bottom: 16px; display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-    .title { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
-    .code, .muted { color: #667085; font-size: 13px; }
-    .prob { font-size: 28px; font-weight: 700; margin: 10px 0; }
-    .strong { color: #0f8a3b; }
-    .positive { color: #2374ab; }
-    .watch { color: #8a5a00; }
-    .avoid { color: #a33a3a; }
-    .row { display: flex; justify-content: space-between; border-top: 1px solid #eef1f4; padding: 6px 0; font-size: 13px; color: #4b5563; }
+    button { border: 1px solid #2f6fed; background: #2f6fed; color: #fff; border-radius: 6px; padding: 9px 14px; cursor: pointer; margin-right: 8px; }
+    .muted { color: #667085; font-size: 13px; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #dde3ea; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #eef1f4; text-align: left; font-size: 14px; }
+    th { background: #f9fafb; font-weight: 700; }
+    .toolbar { margin-bottom: 16px; }
   </style>
 </head>
 <body>
   <header>
-    <h1>贝叶斯短线 LLM 决策 - 同花顺热榜前5</h1>
-    <div class="muted" id="source">loading</div>
+    <h1>每日滚动回测资金表</h1>
+    <div class="muted">初始资金 100000，满仓买入，满仓卖出</div>
   </header>
   <main>
     <div class="toolbar">
-      <button id="refresh">刷新分析</button>
-      <button id="generate">生成今晚计划</button>
-      <span class="muted">LLM 使用“贝叶斯短线分析”系统提示词，结合前5热榜与结构化贝叶斯证据给出 T+1 决策。</span>
+      <button id="generate">生成今晚决策</button>
+      <button id="refresh">刷新表格</button>
+      <span class="muted" id="status"></span>
     </div>
-    <section class="panel market" id="market"></section>
-    <section class="actions" id="actions"></section>
-    <section class="panel advisor" id="advisor">LLM 分析加载中...</section>
-    <section class="grid" id="items"></section>
+    <table>
+      <thead>
+        <tr>
+          <th>日期</th>
+          <th>LLM决策结果</th>
+          <th>股票</th>
+          <th>动作</th>
+          <th>价格</th>
+          <th>股数</th>
+          <th>收益率</th>
+          <th>资金</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
   </main>
   <script>
-    const labels = {
-      ice: "冰点", retreat: "退潮", mixed: "混沌", warmup: "启动", markup: "主升", climax: "高潮",
-      up: "向上", flat: "震荡", down: "向下",
-      breakout_after_base: "平台后突破", first_pullback: "首次回踩", sideways: "横盘", extended_chase: "高位追涨", weak_downtrend: "弱势下行",
-      healthy_expansion: "健康放量", explosive_divergence: "爆量分歧", neutral: "中性", shrinking_or_inactive: "缩量低活跃",
-      strong: "强", positive: "积极", watch: "观察", avoid: "回避", medium: "中", weak: "弱", none: "无",
-      top10: "热榜前10", top50: "热榜前50", normal: "普通", cold: "冷门",
-      small_position_only: "轻仓试错", watch_for_entry: "等买点", observe: "观察"
-    };
-    const fmt = value => labels[value] || value;
-    const pct = value => (value * 100).toFixed(1) + "%";
+    const fmtMoney = v => v == null ? "" : Number(v).toFixed(2);
+    const fmtPct = v => v == null ? "" : (Number(v) * 100).toFixed(2) + "%";
 
     async function load() {
-      const res = await fetch("/api/analysis");
+      const res = await fetch("/api/backtest/history");
       const data = await res.json();
-      document.getElementById("source").textContent = `${data.source} / ${data.model}`;
-      document.getElementById("market").innerHTML = `
-        <div><b>周期</b><br>${fmt(data.market.cycle_phase)}</div>
-        <div><b>指数</b><br>${fmt(data.market.index_trend)}</div>
-        <div><b>情绪分</b><br>${data.market.sentiment_score}</div>
-        <div><b>时间</b><br>${data.market.timestamp}</div>
-      `;
-      const advice = data.llm_advice || {};
-      document.getElementById("advisor").textContent = advice.content || advice.error || "LLM 未配置或暂无输出";
-      document.getElementById("items").innerHTML = data.items.map(item => `
-        <article class="card">
-          <div class="title">
-            <h3>${item.stock.hot_rank}. ${item.stock.name} <span class="code">${item.stock.code}</span></h3>
-            <span class="code">${item.stock.change_pct.toFixed(2)}%</span>
-          </div>
-          <div class="prob ${item.signal}">${pct(item.posterior_profit)}</div>
-          <div class="muted">先验 ${pct(item.prior_profit)} / ${fmt(item.signal)} / ${fmt(item.action)}</div>
-          ${item.evidence.map(e => `
-            <div class="row">
-              <span>${e.name}: ${fmt(e.value)}</span>
-              <span>${e.profit_likelihood.toFixed(2)} / ${e.loss_likelihood.toFixed(2)}</span>
-            </div>
-          `).join("")}
-        </article>
+      document.getElementById("rows").innerHTML = data.rows.map(row => `
+        <tr>
+          <td>${row.date}</td>
+          <td>${row.decision}</td>
+          <td>${row.code || ""} ${row.name || ""}</td>
+          <td>${row.action}</td>
+          <td>${fmtMoney(row.price)}</td>
+          <td>${row.shares || ""}</td>
+          <td>${fmtPct(row.profit_pct)}</td>
+          <td>${fmtMoney(row.capital)}</td>
+        </tr>
       `).join("");
-      loadActions();
     }
 
-    async function loadActions() {
-      const res = await fetch("/api/plans/today-actions");
-      const data = await res.json();
-      const block = (title, action) => action ? `
-        <div class="panel">
-          <b>${title}</b><br>
-          ${action.code} ${action.name}<br>
-          <span class="muted">计划ID ${action.id} / ${fmt(action.position)} / ${pct(action.bayes_probability || 0)}</span>
-        </div>
-      ` : `<div class="panel"><b>${title}</b><br><span class="muted">无</span></div>`;
-      document.getElementById("actions").innerHTML = block("今日09:30卖出", data.sell) + block("今日09:30买入", data.buy);
-    }
-
-    async function generatePlan() {
+    async function generate() {
+      document.getElementById("status").textContent = "生成中...";
       const res = await fetch("/api/plans/generate", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
       const data = await res.json();
-      const analyzed = data.analysis?.items?.length || 0;
-      const suffix = data.plan.decision === "parse_error" ? "LLM未返回合法JSON，请查看LLM原文" : `${data.plan.code || ""} ${data.plan.name || ""}`;
-      alert(`已分析${analyzed}只，生成计划：${data.plan.decision} ${suffix}`);
-      load();
+      document.getElementById("status").textContent = `计划: ${data.plan.decision} ${data.plan.code || ""} ${data.plan.name || ""}`;
+      await load();
     }
+
     document.getElementById("refresh").addEventListener("click", load);
-    document.getElementById("generate").addEventListener("click", generatePlan);
+    document.getElementById("generate").addEventListener("click", generate);
     load();
   </script>
 </body>

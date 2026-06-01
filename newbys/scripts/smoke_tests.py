@@ -1,11 +1,15 @@
 import os
 import sys
+import tempfile
+from pathlib import Path
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import tests.test_api as api_tests
+import tests.test_backtest as backtest_tests
 import tests.test_decide_script as decide_script_tests
+import tests.test_daily_job as daily_job_tests
 import tests.test_feature_builder as feature_tests
 import tests.test_llm_advisor as llm_tests
 import tests.test_plan_api as plan_api_tests
@@ -24,9 +28,17 @@ def main():
     api_tests.test_manual_analysis_accepts_explicit_evidence()
     api_tests.test_analysis_defaults_to_top5_and_includes_llm_advice()
     decide_script_tests.test_build_decision_payload_uses_all_items_and_parses_decision()
-    import tempfile
-    from pathlib import Path
-
+    with tempfile.TemporaryDirectory() as tmp:
+        daily_job_tests.test_read_json_argument_prefers_file(Path(tmp))
+    for test in [
+        backtest_tests.test_portfolio_starts_with_100k_cash,
+        backtest_tests.test_full_position_buy_and_sell_updates_capital,
+        backtest_tests.test_daily_roll_sells_existing_position_then_buys_new_decision,
+        backtest_tests.test_hold_cash_only_sells_existing_position,
+        backtest_tests.test_history_table_rows_include_date_decision_and_capital,
+    ]:
+        with tempfile.TemporaryDirectory() as tmp:
+            test(Path(tmp))
     with tempfile.TemporaryDirectory() as tmp:
         llm_tests.test_load_env_file_reads_freechat_config_without_exporting_secret(Path(tmp))
     llm_tests.test_build_llm_payload_uses_bayesian_system_prompt_and_top5_inputs()

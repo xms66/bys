@@ -20,5 +20,7 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+data/
+newbys/data/
 .DS_Store
 Thumbs.db

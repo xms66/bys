@@ -91,3 +91,22 @@ python scripts\decide_hot50.py --top-n 50
 ```powershell
 python scripts\decide_hot50.py --top-n 50 --json
 ```
+
+回测/资金表：
+
+```powershell
+# 晚上生成决策并记录资金表
+python scripts\daily_job.py decide
+
+# 早上按开盘价执行卖旧买新，满仓卖出、满仓买入
+python scripts\daily_job.py execute --decision-file data\decision.json --open-prices-file data\open_prices.json
+```
+
+Docker 部署：
+
+```bash
+docker build -t newbys .
+docker run -d --name newbys -p 5010:5010 --env-file .env -v $(pwd)/data:/app/data newbys
+```
+
+定时任务示例见 `deploy/crontab.example`。当前早盘执行脚本需要传入开盘价 JSON；接入行情或交易接口后可以改成自动取价。
