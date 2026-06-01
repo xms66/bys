@@ -5,6 +5,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 import tests.test_api as api_tests
+import tests.test_decide_script as decide_script_tests
 import tests.test_feature_builder as feature_tests
 import tests.test_llm_advisor as llm_tests
 import tests.test_plan_api as plan_api_tests
@@ -22,6 +23,7 @@ def main():
     api_tests.test_analysis_api_returns_subjective_bayes_result()
     api_tests.test_manual_analysis_accepts_explicit_evidence()
     api_tests.test_analysis_defaults_to_top5_and_includes_llm_advice()
+    decide_script_tests.test_build_decision_payload_uses_all_items_and_parses_decision()
     import tempfile
     from pathlib import Path
 

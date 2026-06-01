@@ -78,3 +78,16 @@ python -m pytest -q
 ```powershell
 python scripts\smoke_tests.py
 ```
+
+独立运行 LLM 热榜50决策：
+
+```powershell
+cd E:\workspace\diy\贝叶斯短线\newbys
+python scripts\decide_hot50.py --top-n 50
+```
+
+如需完整 JSON：
+
+```powershell
+python scripts\decide_hot50.py --top-n 50 --json
+```
