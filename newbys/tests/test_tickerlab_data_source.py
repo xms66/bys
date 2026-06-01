@@ -1,4 +1,4 @@
-from newbys.data_source import TickerLabHotRankDataSource
+from newbys.data_source import ThsAppHotRankDataSource, TickerLabHotRankDataSource
 
 
 class FakeResponse:
@@ -77,3 +77,44 @@ def test_tickerlab_source_uses_quote_data_and_returns_ranked_snapshots():
     assert quote_source.codes == ["300001", "300002"]
     assert [stock.hot_rank for stock in stocks] == [1, 2]
     assert [stock.code for stock in stocks] == ["300001", "300002"]
+
+
+def test_ths_app_hot_rank_parses_fuyao_everyone_watching_payload():
+    payload = {
+        "status_code": 0,
+        "data": {
+            "stock_list": [
+                {
+                    "order": 1,
+                    "code": "600863",
+                    "name": "华能蒙电",
+                    "rate": "1297000.0",
+                    "rise_and_fall": 8.49,
+                    "tag": {
+                        "concept_tag": ["超超临界发电", "煤炭概念"],
+                        "popularity_tag": "6天3板",
+                    },
+                },
+                {
+                    "order": 2,
+                    "code": "601991",
+                    "name": "大唐发电",
+                    "rate": "1170000.0",
+                    "rise_and_fall": -3.01,
+                    "tag": {
+                        "concept_tag": "绿色电力,风电",
+                        "popularity_tag": "持续上榜",
+                    },
+                },
+            ]
+        },
+    }
+    source = ThsAppHotRankDataSource(session=FakeSession(payload))
+
+    entries = source.fetch_hot_rank_entries(top_n=50)
+
+    assert [entry.code for entry in entries] == ["600863", "601991"]
+    assert [entry.rank for entry in entries] == [1, 2]
+    assert entries[0].heat_score == 1297000.0
+    assert entries[0].concept_tags == ["超超临界发电", "煤炭概念"]
+    assert entries[1].concept_tags == ["绿色电力", "风电"]

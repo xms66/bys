@@ -266,9 +266,115 @@ class TickerLabHotRankDataSource:
             return 0.0
 
 
+class ThsAppHotRankDataSource:
+    source_name = "ths_app_hot_rank"
+    HOT_RANK_URL = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock"
+
+    def __init__(
+        self,
+        session: requests.Session | None = None,
+        quote_source: TencentQuoteDataSource | None = None,
+        timeout: int = 10,
+    ):
+        self.session = session or requests.Session()
+        self.quote_source = quote_source or TencentQuoteDataSource(timeout=timeout)
+        self.timeout = timeout
+
+    def fetch_hot_rank_entries(self, top_n: int = 50) -> list[HotRankEntry]:
+        response = self.session.get(
+            self.HOT_RANK_URL,
+            params={"stock_type": "a", "type": "hour", "list_type": "normal"},
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Referer": "https://www.10jqka.com.cn/",
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        if isinstance(payload, dict) and payload.get("status_code") not in (None, 0):
+            raise RuntimeError(f"THS App hot rank error: {payload.get('status_msg')}")
+        stock_list = payload.get("data", {}).get("stock_list", []) if isinstance(payload, dict) else []
+        entries = []
+        for idx, item in enumerate(stock_list[:top_n], 1):
+            if not isinstance(item, dict):
+                continue
+            code = TickerLabHotRankDataSource._clean_code(item.get("code"))
+            name = str(item.get("name", "")).strip()
+            if not code or not name:
+                continue
+            rank = TickerLabHotRankDataSource._to_int(item.get("order"), idx)
+            heat = TickerLabHotRankDataSource._to_float(item.get("rate"))
+            tag = item.get("tag", {})
+            entries.append(
+                HotRankEntry(
+                    rank=rank,
+                    code=code,
+                    name=name,
+                    heat_score=heat,
+                    concept_tags=self._extract_concept_tags(tag),
+                )
+            )
+        entries.sort(key=lambda entry: entry.rank)
+        return entries[:top_n]
+
+    def get_stocks(self, top_n: int = 50) -> list[StockSnapshot]:
+        entries = self.fetch_hot_rank_entries(top_n=top_n)
+        quotes = {stock.code: stock for stock in self.quote_source.get_stocks_for_codes([entry.code for entry in entries])}
+        snapshots = []
+        for entry in entries:
+            quote = quotes.get(entry.code)
+            if quote:
+                snapshots.append(
+                    StockSnapshot(
+                        code=quote.code,
+                        name=quote.name or entry.name,
+                        price=quote.price,
+                        change_pct=quote.change_pct,
+                        turnover_rate=quote.turnover_rate,
+                        volume_ratio=quote.volume_ratio,
+                        amount=quote.amount,
+                        hot_rank=entry.rank,
+                        concept_tags=entry.concept_tags or quote.concept_tags,
+                    )
+                )
+            else:
+                snapshots.append(
+                    StockSnapshot(
+                        code=entry.code,
+                        name=entry.name,
+                        price=0.0,
+                        change_pct=0.0,
+                        turnover_rate=0.0,
+                        volume_ratio=1.0,
+                        amount=0.0,
+                        hot_rank=entry.rank,
+                        concept_tags=entry.concept_tags or [],
+                    )
+                )
+        return snapshots[:top_n]
+
+    @staticmethod
+    def _extract_concept_tags(tag: object) -> list[str]:
+        if not isinstance(tag, dict):
+            return []
+        concepts = tag.get("concept_tag", [])
+        if isinstance(concepts, str):
+            return [item.strip() for item in re.split(r"[,;，；]", concepts) if item.strip()]
+        if isinstance(concepts, list):
+            return [str(item).strip() for item in concepts if str(item).strip()]
+        return []
+
+
 def create_data_source(force_mock: bool = False) -> DataSource:
     if force_mock:
         return MockDataSource()
+    try:
+        source = ThsAppHotRankDataSource()
+        if source.get_stocks(3):
+            return source
+    except Exception:
+        pass
     if os.environ.get("TICKERLAB_API_KEY"):
         try:
             source = TickerLabHotRankDataSource()
