@@ -15,15 +15,26 @@ from .engine import SubjectiveBayesEngine
 from .features import build_evidence_from_snapshot, infer_market_context
 from .llm_advisor import LlmAdvisor
 from .models import EvidenceInput, MarketContext, StockSnapshot
+from .trade_planner import (
+    TradePlanStore,
+    create_trade_plan_from_llm,
+    get_today_actions,
+    parse_llm_decision,
+)
 
 
-def create_app(data_source: DataSource | None = None, llm_advisor: LlmAdvisor | None = None) -> Flask:
+def create_app(
+    data_source: DataSource | None = None,
+    llm_advisor: LlmAdvisor | None = None,
+    plan_store: TradePlanStore | None = None,
+) -> Flask:
     app = Flask(__name__, static_folder="../web", static_url_path="")
     if CORS:
         CORS(app)
     engine = SubjectiveBayesEngine()
     source = data_source or create_data_source()
     advisor = llm_advisor or LlmAdvisor()
+    store = plan_store or TradePlanStore()
 
     @app.get("/")
     def index():
@@ -41,23 +52,37 @@ def create_app(data_source: DataSource | None = None, llm_advisor: LlmAdvisor | 
     @app.get("/api/analysis")
     def analysis():
         top_n = min(int(request.args.get("top_n", 5)), 5)
-        stocks = source.get_stocks(top_n)
-        market = infer_market_context(stocks)
-        items = []
-        for stock in stocks:
-            evidence_input = build_evidence_from_snapshot(stock, market)
-            result = engine.infer(evidence_input).to_dict()
-            result["posterior_profit"] = result["posterior_profit"]
-            items.append(result)
-        market_dict = market.to_dict()
-        llm_advice = advisor.analyze(market_dict, items)
-        return jsonify({
-            "model": "subjective_bayes_v1",
-            "source": source.source_name,
-            "market": market_dict,
-            "items": items,
-            "llm_advice": llm_advice,
-        })
+        return jsonify(_build_analysis_payload(source, engine, advisor, top_n=top_n))
+
+    @app.post("/api/plans/generate")
+    def generate_plan():
+        payload = request.get_json(silent=True) or {}
+        plan_date = payload.get("plan_date") or __import__("datetime").date.today().isoformat()
+        analysis_payload = _build_analysis_payload(source, engine, advisor, top_n=50)
+        llm_advice = analysis_payload["llm_advice"]
+        decision = parse_llm_decision(llm_advice.get("content", ""))
+        plan = create_trade_plan_from_llm(
+            plan_date=plan_date,
+            llm_decision=decision,
+            raw_llm_text=llm_advice.get("content", ""),
+        )
+        saved = store.save_plan(plan)
+        return jsonify({"plan": saved, "analysis": analysis_payload})
+
+    @app.get("/api/plans/today-actions")
+    def today_actions():
+        day = request.args.get("date")
+        return jsonify(get_today_actions(store, day))
+
+    @app.post("/api/plans/<int:plan_id>/mark-buy")
+    def mark_buy(plan_id: int):
+        payload = request.get_json(force=True)
+        return jsonify({"plan": store.mark_buy_executed(plan_id, float(payload["price"]))})
+
+    @app.post("/api/plans/<int:plan_id>/mark-sell")
+    def mark_sell(plan_id: int):
+        payload = request.get_json(force=True)
+        return jsonify({"plan": store.mark_sell_executed(plan_id, float(payload["price"]))})
 
     @app.post("/api/infer")
     def infer_manual():
@@ -77,6 +102,23 @@ def create_app(data_source: DataSource | None = None, llm_advisor: LlmAdvisor | 
         return jsonify(engine.infer(evidence_input).to_dict())
 
     return app
+
+
+def _build_analysis_payload(source: DataSource, engine: SubjectiveBayesEngine, advisor, top_n: int) -> dict:
+    stocks = source.get_stocks(top_n)
+    market = infer_market_context(stocks)
+    items = []
+    for stock in stocks:
+        evidence_input = build_evidence_from_snapshot(stock, market)
+        items.append(engine.infer(evidence_input).to_dict())
+    market_dict = market.to_dict()
+    return {
+        "model": "subjective_bayes_v1",
+        "source": source.source_name,
+        "market": market_dict,
+        "items": items,
+        "llm_advice": advisor.analyze(market_dict, items),
+    }
 
 
 def _stock_from_payload(data: dict) -> StockSnapshot:

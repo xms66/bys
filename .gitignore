@@ -17,5 +17,8 @@ env/
 !.env.example
 
 *.log
+*.db
+*.sqlite
+*.sqlite3
 .DS_Store
 Thumbs.db

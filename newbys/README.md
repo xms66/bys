@@ -15,6 +15,16 @@
 - 第一版使用主观参数表，不依赖个股长期历史。
 - 输出每个证据的 `P(evidence|profit)` 和 `P(evidence|loss)`，方便人工调参。
 - LLM 会读取同花顺热榜前 5 和结构化贝叶斯证据，并在“贝叶斯短线分析”系统提示词约束下给出 T+1 决策。
+- 生成交易计划时，后端会比较同花顺热榜前 50；首页只展示前 5 和最终计划。
+
+交易节奏：
+
+```text
+D0 晚上生成计划 -> D1 09:30 买入 -> D2 09:30 卖出
+D1 晚上生成新计划 -> D2 09:30 卖出旧仓同时买入新计划
+```
+
+当前计划日期第一版按自然日推进，后续可替换为交易日历。
 
 启动：
 
@@ -43,6 +53,10 @@ http://127.0.0.1:5010
 - `GET /api/status`
 - `GET /api/analysis`
 - `POST /api/infer`
+- `POST /api/plans/generate`
+- `GET /api/plans/today-actions`
+- `POST /api/plans/<id>/mark-buy`
+- `POST /api/plans/<id>/mark-sell`
 
 数据源优先级：
 

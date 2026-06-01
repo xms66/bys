@@ -14,6 +14,7 @@
     .panel, .card { background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 14px; }
     .market { display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; margin-bottom: 16px; }
     .advisor { margin-bottom: 16px; white-space: pre-wrap; line-height: 1.55; }
+    .actions { margin-bottom: 16px; display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 12px; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
     .title { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
     .code, .muted { color: #667085; font-size: 13px; }
@@ -33,9 +34,11 @@
   <main>
     <div class="toolbar">
       <button id="refresh">刷新分析</button>
+      <button id="generate">生成今晚计划</button>
       <span class="muted">LLM 使用“贝叶斯短线分析”系统提示词，结合前5热榜与结构化贝叶斯证据给出 T+1 决策。</span>
     </div>
     <section class="panel market" id="market"></section>
+    <section class="actions" id="actions"></section>
     <section class="panel advisor" id="advisor">LLM 分析加载中...</section>
     <section class="grid" id="items"></section>
   </main>
@@ -80,8 +83,30 @@
           `).join("")}
         </article>
       `).join("");
+      loadActions();
+    }
+
+    async function loadActions() {
+      const res = await fetch("/api/plans/today-actions");
+      const data = await res.json();
+      const block = (title, action) => action ? `
+        <div class="panel">
+          <b>${title}</b><br>
+          ${action.code} ${action.name}<br>
+          <span class="muted">计划ID ${action.id} / ${fmt(action.position)} / ${pct(action.bayes_probability || 0)}</span>
+        </div>
+      ` : `<div class="panel"><b>${title}</b><br><span class="muted">无</span></div>`;
+      document.getElementById("actions").innerHTML = block("今日09:30卖出", data.sell) + block("今日09:30买入", data.buy);
+    }
+
+    async function generatePlan() {
+      const res = await fetch("/api/plans/generate", { method: "POST", headers: {"Content-Type": "application/json"}, body: "{}" });
+      const data = await res.json();
+      alert(`已生成计划：${data.plan.decision} ${data.plan.code || ""} ${data.plan.name || ""}`);
+      load();
     }
     document.getElementById("refresh").addEventListener("click", load);
+    document.getElementById("generate").addEventListener("click", generatePlan);
     load();
   </script>
 </body>
