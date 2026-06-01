@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>主观贝叶斯 T+1 推断</title>
+  <style>
+    body { margin: 0; font-family: Arial, "Microsoft YaHei", sans-serif; background: #f6f7f9; color: #1f2933; }
+    header { padding: 18px 28px; background: #ffffff; border-bottom: 1px solid #dde3ea; display: flex; justify-content: space-between; align-items: center; }
+    h1 { font-size: 20px; margin: 0; }
+    main { padding: 22px 28px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; }
+    button { border: 1px solid #2f6fed; background: #2f6fed; color: #fff; border-radius: 6px; padding: 9px 14px; cursor: pointer; }
+    .market { background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 14px; margin-bottom: 16px; display: grid; grid-template-columns: repeat(4, minmax(120px, 1fr)); gap: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
+    .card { background: #fff; border: 1px solid #dde3ea; border-radius: 8px; padding: 14px; }
+    .title { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+    .code { color: #667085; font-size: 13px; }
+    .prob { font-size: 28px; font-weight: 700; margin: 10px 0; }
+    .strong { color: #0f8a3b; }
+    .positive { color: #2374ab; }
+    .watch { color: #8a5a00; }
+    .avoid { color: #a33a3a; }
+    .evidence { margin-top: 10px; font-size: 13px; color: #4b5563; }
+    .row { display: flex; justify-content: space-between; border-top: 1px solid #eef1f4; padding: 6px 0; }
+    .muted { color: #667085; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>主观贝叶斯 T+1 盈利概率</h1>
+    <div class="muted" id="source">loading</div>
+  </header>
+  <main>
+    <div class="toolbar">
+      <button id="refresh">刷新分析</button>
+      <span class="muted">市场周期作为先验，近五日形态/量能/消息/题材/人气作为似然证据。</span>
+    </div>
+    <section class="market" id="market"></section>
+    <section class="grid" id="items"></section>
+  </main>
+  <script>
+    const labels = {
+      ice: "冰点", retreat: "退潮", mixed: "混沌", warmup: "启动", markup: "主升", climax: "高潮",
+      up: "向上", flat: "震荡", down: "向下",
+      breakout_after_base: "平台后突破", first_pullback: "首次回踩", sideways: "横盘", extended_chase: "高位追涨", weak_downtrend: "弱势下行",
+      healthy_expansion: "健康放量", explosive_divergence: "爆量分歧", neutral: "中性", shrinking_or_inactive: "缩量低活跃",
+      strong: "强", medium: "中", weak: "弱", none: "无", top10: "热榜前10", top50: "热榜前50", normal: "普通", cold: "冷门"
+    };
+
+    function fmt(value) { return labels[value] || value; }
+    function pct(value) { return (value * 100).toFixed(1) + "%"; }
+
+    async function load() {
+      const res = await fetch("/api/analysis?top_n=20");
+      const data = await res.json();
+      document.getElementById("source").textContent = data.source + " / " + data.model;
+      document.getElementById("market").innerHTML = `
+        <div><b>周期</b><br>${fmt(data.market.cycle_phase)}</div>
+        <div><b>指数</b><br>${fmt(data.market.index_trend)}</div>
+        <div><b>情绪分</b><br>${data.market.sentiment_score}</div>
+        <div><b>时间</b><br>${data.market.timestamp}</div>
+      `;
+      document.getElementById("items").innerHTML = data.items.map(item => `
+        <article class="card">
+          <div class="title">
+            <h3>${item.stock.name} <span class="code">${item.stock.code}</span></h3>
+            <span class="code">rank ${item.stock.hot_rank || "-"}</span>
+          </div>
+          <div class="prob ${item.signal}">${pct(item.posterior_profit)}</div>
+          <div class="muted">先验 ${pct(item.prior_profit)} / ${fmt(item.signal)} / ${fmt(item.action)}</div>
+          <div class="evidence">
+            ${item.evidence.map(e => `
+              <div class="row">
+                <span>${e.name}: ${fmt(e.value)}</span>
+                <span>${e.profit_likelihood.toFixed(2)} / ${e.loss_likelihood.toFixed(2)}</span>
+              </div>
+            `).join("")}
+          </div>
+        </article>
+      `).join("");
+    }
+    document.getElementById("refresh").addEventListener("click", load);
+    load();
+  </script>
+</body>
+</html>
